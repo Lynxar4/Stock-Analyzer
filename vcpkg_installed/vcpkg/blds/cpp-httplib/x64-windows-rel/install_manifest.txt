@@ -1,0 +1,6 @@
+C:/C++ Projects/Stock calculator/vcpkg_installed/vcpkg/pkgs/cpp-httplib_x64-windows/include/httplib.h
+C:/C++ Projects/Stock calculator/vcpkg_installed/vcpkg/pkgs/cpp-httplib_x64-windows/lib/cmake/httplib/httplibConfig.cmake
+C:/C++ Projects/Stock calculator/vcpkg_installed/vcpkg/pkgs/cpp-httplib_x64-windows/lib/cmake/httplib/httplibConfigVersion.cmake
+C:/C++ Projects/Stock calculator/vcpkg_installed/vcpkg/pkgs/cpp-httplib_x64-windows/lib/cmake/httplib/httplibTargets.cmake
+C:/C++ Projects/Stock calculator/vcpkg_installed/vcpkg/pkgs/cpp-httplib_x64-windows/share/doc/httplib/README.md
+C:/C++ Projects/Stock calculator/vcpkg_installed/vcpkg/pkgs/cpp-httplib_x64-windows/share/licenses/httplib/LICENSE

@@ -1,0 +1,17 @@
+C:/C++ Projects/Stock calculator/vcpkg_installed/vcpkg/pkgs/brotli_x64-windows/debug/tools/brotli/brotli.exe
+C:/C++ Projects/Stock calculator/vcpkg_installed/vcpkg/pkgs/brotli_x64-windows/debug/lib/brotlienc.lib
+C:/C++ Projects/Stock calculator/vcpkg_installed/vcpkg/pkgs/brotli_x64-windows/debug/bin/brotlienc.dll
+C:/C++ Projects/Stock calculator/vcpkg_installed/vcpkg/pkgs/brotli_x64-windows/debug/lib/brotlidec.lib
+C:/C++ Projects/Stock calculator/vcpkg_installed/vcpkg/pkgs/brotli_x64-windows/debug/bin/brotlidec.dll
+C:/C++ Projects/Stock calculator/vcpkg_installed/vcpkg/pkgs/brotli_x64-windows/debug/lib/brotlicommon.lib
+C:/C++ Projects/Stock calculator/vcpkg_installed/vcpkg/pkgs/brotli_x64-windows/debug/bin/brotlicommon.dll
+C:/C++ Projects/Stock calculator/vcpkg_installed/vcpkg/pkgs/brotli_x64-windows/debug/share/unofficial-brotli/unofficial-brotli-config.cmake
+C:/C++ Projects/Stock calculator/vcpkg_installed/vcpkg/pkgs/brotli_x64-windows/debug/share/unofficial-brotli/unofficial-brotli-config-debug.cmake
+C:/C++ Projects/Stock calculator/vcpkg_installed/vcpkg/pkgs/brotli_x64-windows/debug/lib/pkgconfig/libbrotlicommon.pc
+C:/C++ Projects/Stock calculator/vcpkg_installed/vcpkg/pkgs/brotli_x64-windows/debug/lib/pkgconfig/libbrotlidec.pc
+C:/C++ Projects/Stock calculator/vcpkg_installed/vcpkg/pkgs/brotli_x64-windows/debug/lib/pkgconfig/libbrotlienc.pc
+C:/C++ Projects/Stock calculator/vcpkg_installed/vcpkg/pkgs/brotli_x64-windows/debug/share/man/man1/brotli.1
+C:/C++ Projects/Stock calculator/vcpkg_installed/vcpkg/pkgs/brotli_x64-windows/debug/share/man/man3/constants.h.3
+C:/C++ Projects/Stock calculator/vcpkg_installed/vcpkg/pkgs/brotli_x64-windows/debug/share/man/man3/decode.h.3
+C:/C++ Projects/Stock calculator/vcpkg_installed/vcpkg/pkgs/brotli_x64-windows/debug/share/man/man3/encode.h.3
+C:/C++ Projects/Stock calculator/vcpkg_installed/vcpkg/pkgs/brotli_x64-windows/debug/share/man/man3/types.h.3

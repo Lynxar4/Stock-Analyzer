@@ -3,6 +3,7 @@
 #include <string_view>
 #include <vector>
 #include <algorithm>
+#include <nlohmann/json.hpp>
 #define CPPHTTPLIB_OPENSSL_SUPPORT
 #include "httplib.h"
 
@@ -55,18 +56,21 @@ void printStockList(const std::vector<Stock>& stocks)
 	}
 }
 
+using json = nlohmann::json;
+
 int main()
 {
-	httplib::Client cli("https://nghttp2.org");
+	httplib::Client cli("https://www.alphavantage.co"); // Alpha Vantage is the server 
 
-	auto res = cli.Get("/");
-	if (res) {
-		std::cout << res->status << std::endl;           // 200
-		std::cout << res->body.substr(0, 100) << std::endl;  // First 100 chars of the HTML
+	auto res = cli.Get("https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=MSFT&apikey=demo");
+	if (res && res->status == 200) {
+		json data = json::parse(res->body);
+		std::cout << data;
 	}
 	else {
-		std::cout << "Error: " << httplib::to_string(res.error()) << std::endl;
+		std::cout << "Request failed.\n";
 	}
+
 
 	std::cout << '\n';
 	std::vector<Stock> stocks{};
