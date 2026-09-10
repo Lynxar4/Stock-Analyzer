@@ -7,48 +7,31 @@
 #define CPPHTTPLIB_OPENSSL_SUPPORT
 #include "httplib.h"
 
+using json = nlohmann::json;
+
 class Stock
 {
 public:
 	Stock() = default;
 
-	Stock(std::string_view name, double price, double peRatio, double dividend, double revenue2026, double debt, double revenue2025)
-		:m_name{ name }, m_price{ price }, m_peRatio{ peRatio }, m_dividend{ dividend }, m_revenue2026{ revenue2026 }, m_debt{ debt }, m_revenue2025{revenue2025}
+	Stock(std::string_view symbol, double price)
+		:m_symbol{ symbol }, m_price{price}
 	{}
 
 	void printInfo() const;
-	double getRatio() const { return m_peRatio; }
-	double getGrowth() const { return revenueGrowth; }
 
 private:
-	std::string m_name{};
+	std::string m_symbol{};
 	double m_price{};
-	double m_peRatio{};
-	double m_dividend{};
-	double m_revenue2026{};
-	double m_revenue2025{};
-	double m_debt{};
-	double revenueGrowth{ (m_revenue2026 - m_revenue2025) / m_revenue2025 * 100 };
 };
 
 void Stock::printInfo() const
 {
-	std::cout << "Name: " << m_name << '\n';
-	std::cout << "Price: " << '$' << m_price << '\n';
-	std::cout << "P/E Ratio: " << m_peRatio << '\n';
-	std::cout << "Dividend: " << m_dividend << "%\n";
-	std::cout << "Revenue: " << m_revenue2026 << " billion\n";
-	std::cout << "Revenue growth: " << revenueGrowth << "%\n";
-	std::cout << "Debt: " << m_debt << " billion\n";
-	std::cout << '\n';
+	std::cout << "Symbol: " << m_symbol << '\n';
+	std::cout << "Price: " << m_price << '\n';
 }
 
-bool compare(Stock& x, Stock& y)
-{
-	return x.getRatio() < y.getRatio();
-}
-
-void printStockList(const std::vector<Stock>& stocks)
+void printStockList(const std::vector<Stock>& stocks) 
 {
 	for (const auto& i : stocks)
 	{
@@ -56,41 +39,34 @@ void printStockList(const std::vector<Stock>& stocks)
 	}
 }
 
-using json = nlohmann::json;
-
-int main()
+Stock getStock(std::string symbol)
 {
 	httplib::Client cli("https://www.alphavantage.co"); // Alpha Vantage is the server 
-
-	auto res = cli.Get("https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=MSFT&apikey=demo");
+	std::string URL{ "https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=" + symbol + "&apikey=demo" };
+	auto res = cli.Get(URL);
 	if (res && res->status == 200) {
-		json data = json::parse(res->body);
-		std::cout << data;
+		json stockData = json::parse(res->body);
+		auto data{ stockData["Global Quote"] };
+		return { data["01. symbol"].get<std::string>(),
+			std::stod(data["05. price"].get<std::string>()) };
 	}
 	else {
 		std::cout << "Request failed.\n";
+		return {"Invalid stock", -67};
 	}
+}
 
+std::string getSymbol()
+{
+	std::cout << "Enter a stock symbol: ";
+	std::string symbol{};
+	std::cin >> symbol;
+	return symbol;
+}
 
-	std::cout << '\n';
-	std::vector<Stock> stocks{};
-	Stock Microsoft{ "Microsoft", 487.31, 27.15, 0.75, 331.84, 31.07, 281.7 };
-	Stock Apple{ "Apple", 310.34, 35.58, 0.35, 364.36, 84.34, 416.16 };
-	Stock Google{ "Google", 344.59, 17.31, 0.26, 229.7, 98.165, 402.84 };
-	Stock Nvidia{ "Nvidia", 208.48, 31.93, 0.48, 215.9, 11.41, 130.5 };
-	Stock AMD{ "AMD", 456.74, 117.20, 0, 21.889, 4.28, 34.639 };
-
-	stocks.push_back(Microsoft);
-	stocks.push_back(Apple);
-	stocks.push_back(Google);
-	stocks.push_back(Nvidia);
-	stocks.push_back(AMD);
-
-	printStockList(stocks);
-
-	std::vector<Stock> sortedStocks{ stocks };
-	std::sort(sortedStocks.begin(), sortedStocks.end(), compare);
-
-	std::cout << "Ranking stocks by P/E Ratio\n";
-	printStockList(sortedStocks);
+int main()
+{
+	std::string symbol{ getSymbol() };
+	Stock stock{getStock(symbol)};
+	stock.printInfo();
 }
