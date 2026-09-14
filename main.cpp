@@ -46,6 +46,11 @@ Stock getStock(std::string symbol)
 	auto res = cli.Get(URL);
 	if (res && res->status == 200) {
 		json stockData = json::parse(res->body);
+		if (!stockData.contains("Global Quote"))
+		{
+			std::cout << "You didn't enter a valid symbol buddy.\n";
+			return { "Invalid stock", -67 }; // Uses sentinel value -67 to represent an invalid stock, might be replaced by std::optional in the future
+		}
 		auto data{ stockData["Global Quote"] };
 		return { data["01. symbol"].get<std::string>(),
 			std::stod(data["05. price"].get<std::string>()) };
@@ -60,7 +65,7 @@ std::string getSymbol()
 {
 	std::cout << "Enter a stock symbol: ";
 	std::string symbol{};
-	std::cin >> symbol;
+	std::getline(std::cin >> std::ws, symbol);
 	return symbol;
 }
 
