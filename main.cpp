@@ -1,8 +1,11 @@
+#define _CRT_SECURE_NO_WARNINGS
 #include <iostream>
 #include <string>
 #include <string_view>
 #include <vector>
+#include <cstdlib>
 #include <algorithm>
+#include <optional>
 #include <nlohmann/json.hpp>
 #define CPPHTTPLIB_OPENSSL_SUPPORT
 #include "httplib.h"
@@ -39,25 +42,33 @@ void printStockList(const std::vector<Stock>& stocks)
 	}
 }
 
-Stock getStock(std::string symbol)
+std::optional<Stock> getStock(std::string symbol)
 {
+	auto apiKey{ std::getenv("ALPHA_VANTAGE_API_KEY") };
+	if (!apiKey)
+	{
+		std::cout << "API key could not be found";
+		return std::nullopt;
+	}
+	std::string apiKeyString{ apiKey };
+
 	httplib::Client cli("https://www.alphavantage.co"); // Alpha Vantage is the server 
-	std::string URL{ "https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=" + symbol + "&apikey=demo" };
+	std::string URL{ "https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=" + symbol + "&apikey=" + apiKeyString };
 	auto res = cli.Get(URL);
 	if (res && res->status == 200) {
 		json stockData = json::parse(res->body);
-		if (!stockData.contains("Global Quote"))
+		if (stockData.contains("Global Quote") && stockData["Global Quote"].empty())
 		{
 			std::cout << "You didn't enter a valid symbol buddy.\n";
-			return { "Invalid stock", -67 }; // Uses sentinel value -67 to represent an invalid stock, might be replaced by std::optional in the future
+			return std::nullopt;
 		}
 		auto data{ stockData["Global Quote"] };
-		return { data["01. symbol"].get<std::string>(),
+		return Stock { data["01. symbol"].get<std::string>(),
 			std::stod(data["05. price"].get<std::string>()) };
 	}
 	else {
 		std::cout << "Request failed.\n";
-		return {"Invalid stock", -67};
+		return std::nullopt;
 	}
 }
 
@@ -72,6 +83,9 @@ std::string getSymbol()
 int main()
 {
 	std::string symbol{ getSymbol() };
-	Stock stock{getStock(symbol)};
-	stock.printInfo();
+	std::optional<Stock> stock{getStock(symbol)};
+	if (stock)
+	{
+		stock->printInfo();
+	}
 }
