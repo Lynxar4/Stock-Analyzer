@@ -6,6 +6,8 @@
 #include <cstdlib>
 #include <algorithm>
 #include <optional>
+#include <chrono>
+#include <thread>
 #include <nlohmann/json.hpp>
 #define CPPHTTPLIB_OPENSSL_SUPPORT
 #include "httplib.h"
@@ -17,8 +19,8 @@ class Stock
 public:
 	Stock() = default;
 
-	Stock(std::string_view symbol, double price)
-		:m_symbol{ symbol }, m_price{price}
+	Stock(std::string_view symbol, double price, double revenue, double earningsGrowth, double EPS, double PE, double PEG, double ROE)
+		:m_symbol{ symbol }, m_price{price}, m_revenue{revenue}, m_earningsGrowth{earningsGrowth}, m_EPS{ EPS }, m_PE{PE}, m_PEG{PEG}, m_ROE{ROE}
 	{}
 
 	void printInfo() const;
@@ -26,12 +28,25 @@ public:
 private:
 	std::string m_symbol{};
 	double m_price{};
+	double m_revenue{};
+	double m_earningsGrowth{};
+	double m_EPS{};
+	double m_PE{};
+	double m_PEG{};
+	double m_ROE{};
+
 };
 
 void Stock::printInfo() const
 {
 	std::cout << "Symbol: " << m_symbol << '\n';
 	std::cout << "Price: " << m_price << '\n';
+	std::cout << "Revenue: " << m_revenue << '\n';
+	std::cout << "QuarterlyEarningsGrowthYOY: " << m_earningsGrowth << '\n';
+	std::cout << "Earnings per share: " << m_EPS << '\n';
+	std::cout << "P/E Ratio: " << m_PE << '\n';
+	std::cout << "PEG Ratio: " << m_PEG << '\n';
+	std::cout << "Return on equity: " << m_ROE << '\n';
 }
 
 void printStockList(const std::vector<Stock>& stocks) 
@@ -42,34 +57,67 @@ void printStockList(const std::vector<Stock>& stocks)
 	}
 }
 
-std::optional<Stock> getStock(std::string symbol)
+std::optional<json> getData(std::string symbol, std::string apiKey, std::string function)
 {
-	auto apiKey{ std::getenv("ALPHA_VANTAGE_API_KEY") };
-	if (!apiKey)
-	{
-		std::cout << "API key could not be found";
-		return std::nullopt;
-	}
-	std::string apiKeyString{ apiKey };
-
-	httplib::Client cli("https://www.alphavantage.co"); // Alpha Vantage is the server 
-	std::string URL{ "https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=" + symbol + "&apikey=" + apiKeyString };
+	httplib::Client cli("https://www.alphavantage.co");
+	std::string URL{ "https://www.alphavantage.co/query?function=" + function + "&symbol=" + symbol + "&apikey=" + apiKey }; 
 	auto res = cli.Get(URL);
-	if (res && res->status == 200) {
-		json stockData = json::parse(res->body);
-		if (stockData.contains("Global Quote") && stockData["Global Quote"].empty())
+	if (res && res->status == 200)
+	{
+		json data = json::parse(res->body);	
+
+		if (data.contains("Information"))
 		{
-			std::cout << "You didn't enter a valid symbol buddy.\n";
+			std::cout << "Alpha Vantage reached its rate limit.\n";
 			return std::nullopt;
 		}
-		auto data{ stockData["Global Quote"] };
-		return Stock { data["01. symbol"].get<std::string>(),
-			std::stod(data["05. price"].get<std::string>()) };
+		if (function == "GLOBAL_QUOTE")
+		{
+			if (data["Global Quote"].empty())
+			{
+				std::cout << "You entered an invalid symbol.\n";
+				return std::nullopt;
+			}
+		}
+		else if (function == "OVERVIEW")
+		{
+			if (data.empty())
+			{
+				std::cout << "You entered an invalid symbol.\n";
+				return std::nullopt;
+			}
+		}
+		return data;
 	}
-	else {
+	else
+	{
 		std::cout << "Request failed.\n";
 		return std::nullopt;
 	}
+}
+
+std::optional<Stock> getStock(std::string symbol, std::string apiKey)
+{
+	std::optional<json> quoteData{ getData(symbol, apiKey, "GLOBAL_QUOTE") }; // Get price data
+	if (!quoteData)
+		return std::nullopt;
+
+	std::this_thread::sleep_for(std::chrono::seconds(1)); // 1 second gap to avoid rate limit response
+
+	std::optional<json> metricData{ getData(symbol, apiKey, "OVERVIEW") }; 
+	if (!metricData)
+		return std::nullopt;
+
+	std::string symbolUppercase{ (*metricData)["Symbol"].get<std::string>() };
+	double price{ std::stod((*quoteData)["Global Quote"]["05. price"].get<std::string>()) };
+	double revenue{ std::stod((*metricData)["RevenueTTM"].get<std::string>()) };
+	double earningGrowth{ std::stod((*metricData)["QuarterlyEarningsGrowthYOY"].get<std::string>()) };
+	double EPS{ std::stod((*metricData)["EPS"].get<std::string>()) };
+	double PE{ std::stod((*metricData)["PERatio"].get<std::string>()) };
+	double PEG{ std::stod((*metricData)["PEGRatio"].get<std::string>()) };
+	double ROE{ std::stod((*metricData)["ReturnOnEquityTTM"].get<std::string>()) };
+
+	return Stock{symbolUppercase, price, revenue, earningGrowth, EPS, PE, PEG, ROE};
 }
 
 std::string getSymbol()
@@ -80,12 +128,29 @@ std::string getSymbol()
 	return symbol;
 }
 
+std::optional<std::string> getApiKey()
+{
+	const char* apiKey{ std::getenv("ALPHA_VANTAGE_API_KEY") };
+	if (!apiKey)
+	{
+		std::cout << "API key could not be found";
+		return std::nullopt;
+	}
+	
+	return std::string{ apiKey };
+}
+
 int main()
 {
 	std::string symbol{ getSymbol() };
-	std::optional<Stock> stock{getStock(symbol)};
-	if (stock)
-	{
-		stock->printInfo();
-	}
+	auto apiKey{getApiKey()};
+	if (!apiKey)
+		return 1;
+
+	std::optional<Stock> stock{getStock(symbol, *apiKey)};
+	if (!stock)
+		return 1;
+	stock->printInfo();
+
+	return 0;
 }
