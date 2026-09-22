@@ -8,6 +8,7 @@
 #include <cctype>
 #include <optional>
 #include <iomanip>
+#include <stdexcept>
 #include <nlohmann/json.hpp>
 #define CPPHTTPLIB_OPENSSL_SUPPORT
 #include "httplib.h"
@@ -19,21 +20,24 @@ struct Stock
 	std::string symbol{};
 	double price{};
 	double EPS{};
-	double EPSGrowth{};
-	double PE{};
-	double PEG{};
 	double ROE{};
+	double PE{};
+	double EPSGrowth3Y{};
+	double PEG3Y{};
+	double revenueGrowth3Y{};
 };
 
 void printStock(const Stock& stock) 
 {
 	std::cout << "Symbol: " << stock.symbol << '\n';
-	std::cout << "Price: " << stock.price << '\n';
-	std::cout << "Earnings per share: " << '$' << stock.EPS << '\n';
-	std::cout << "Earnings per share growth: " << stock.EPSGrowth << "%\n";
+	std::cout << "Price: $" << stock.price << '\n';
+	std::cout << "Earnings per share: $" << stock.EPS << '\n';
 	std::cout << "P/E Ratio: " << stock.PE << '\n';
-	std::cout << "PEG Ratio: " << stock.PEG << '\n';
-	std::cout << "Return on equity: " << stock.ROE << '\n';
+	std::cout << "Return on equity: " << stock.ROE << "%\n";
+	std::cout << "Growth metrics (3 year data):\n";
+	std::cout << "EPS Growth: " << stock.EPSGrowth3Y << "%\n";
+	std::cout << "PEG Ratio: " << stock.PEG3Y << '\n';
+	std::cout << "Revenue Growth: " << stock.revenueGrowth3Y << "%\n";
 	std::cout << '\n';
 }
 
@@ -46,6 +50,10 @@ std::string createURL(std::string symbol, std::string apiKey, std::string functi
 	else if (function == "metric")
 	{
 		return "https://finnhub.io/api/v1/stock/metric?symbol=" + symbol + "&metric=all&token=" + apiKey;
+	}
+	else
+	{
+		throw std::runtime_error("Function was not valid"); 
 	}
 }
 
@@ -75,7 +83,7 @@ std::optional<json> getData(std::string symbol, std::string apiKey, std::string 
 		}
 		return data;
 	}
-	else if (res->status == 429)
+	else if (res && res->status == 429)
 	{
 		std::cout << "You reached your rate limit.\n";
 	}
@@ -90,21 +98,47 @@ std::optional<Stock> getStock(std::string symbol, std::string apiKey)
 {
 	std::optional<json> quoteData{ getData(symbol, apiKey, "quote") }; // Get price data
 	if (!quoteData)
+	{
 		return std::nullopt;
+	}
 
 	std::optional<json> metricData{ getData(symbol, apiKey, "metric") };
 	if (!metricData)
+	{
 		return std::nullopt;
+	}
 
-	std::string stockSymbol{ (*metricData)["symbol"].get<std::string>()};
-	double price{ (*quoteData)["c"].get<double>() };
-	double EPS{ (*metricData)["metric"]["epsTTM"].get<double>() };
-	double EPSGrowth{ (*metricData)["metric"]["epsGrowthTTMYoy"].get<double>() };
-	double PERatio{ (*metricData)["metric"]["peTTM"].get<double>() };
-	double PEGRatio{PERatio / EPSGrowth};
-	double ROE{ (*metricData)["metric"]["roeTTM"].get<double>() };
+	std::string stockSymbol{};
+	double price{};
+	double EPS{};
+	double ROE{};
+	double PE{};
+	double EPSGrowth3Y{};
+	double PEG3Y{};
+	double revenueGrowth3Y{};
+	try
+	{
+		stockSymbol = (*metricData)["symbol"].get<std::string>();
+		price = (*quoteData)["c"].get<double>();
+		EPS = (*metricData)["metric"]["epsTTM"].get<double>();
+		ROE = (*metricData)["metric"]["roeTTM"].get<double>();
+		PE = (*metricData)["metric"]["peTTM"].get<double>();
+		EPSGrowth3Y = (*metricData)["metric"]["epsGrowth3Y"].get<double>();
+		if (EPSGrowth3Y > 0)
+		{
+			PEG3Y = PE / EPSGrowth3Y;
+		}
+		else
+			PEG3Y = 0;
+		revenueGrowth3Y = (*metricData)["metric"]["revenueGrowth3Y"].get<double>();
+	}
+	catch (const json::exception&)
+	{
+		std::cout << "Missing or invalid data for this stock.\n";
+		return std::nullopt;
+	}
 
-	return Stock{stockSymbol, price, EPS, EPSGrowth, PERatio, PEGRatio, ROE};
+	return Stock{.symbol = stockSymbol, .price = price, .EPS = EPS, .ROE = ROE, .PE = PE, .EPSGrowth3Y = EPSGrowth3Y, .PEG3Y = PEG3Y, .revenueGrowth3Y = revenueGrowth3Y};
 }
 
 std::string getSymbol()
@@ -129,75 +163,35 @@ std::optional<std::string> getApiKey()
 	return std::string{ apiKey };
 }
 
-std::string_view compareValues(Stock& stock1, Stock& stock2, std::string_view metric)
-{
-	if (metric == "EPSGrowth")
-	{
-		if (stock1.EPSGrowth > stock2.EPSGrowth)
-			return stock1.symbol;
-		else if (stock2.EPSGrowth > stock1.EPSGrowth)
-			return stock2.symbol;
-		else
-			return "TIE";
-	}
-	else if (metric == "PE")
-	{
-		if (stock1.PE < stock2.PE)
-			return stock1.symbol;
-		else if (stock2.PE < stock1.PE)
-			return stock2.symbol;
-		else
-			return "TIE";
-	}
-	else if (metric == "PEG")
-	{
-		if (stock1.PEG < stock2.PEG)
-			return stock1.symbol;
-		else if (stock2.PEG < stock1.PEG)
-			return stock2.symbol;
-		else
-			return "TIE";
-	}
-	else if (metric == "ROE")
-	{
-		if (stock1.ROE > stock2.ROE)
-			return stock1.symbol;
-		else if (stock2.ROE > stock1.ROE)
-			return stock2.symbol;
-		else
-			return "TIE";
-	}
-	return "INVALID";
-}
-
-void compare(Stock& stock1, Stock& stock2)
-{
-	printStock(stock1);
-	printStock(stock2);
-	std::cout << std::left << std::setw(15) << "" << std::setw(15) << stock1.symbol << std::setw(15) << stock2.symbol << "Winner\n";
-	std::cout << std::left << std::setw(15) << "EPS Growth: " << std::setw(15) << stock1.EPSGrowth << std::setw(15) << stock2.EPSGrowth << compareValues(stock1, stock2, "EPSGrowth") << "\n";
-	std::cout << std::left << std::setw(15) << "P/E Ratio: " << std::setw(15) << stock1.PE << std::setw(15) << stock2.PE << compareValues(stock1, stock2, "PE") << '\n';
-	std::cout << std::left << std::setw(15) << "PEG Ratio: " << std::setw(15) << stock1.PEG << std::setw(15) << stock2.PEG << compareValues(stock1, stock2, "PEG") << '\n';
-	std::cout << std::left << std::setw(15) << "ROE: " << std::setw(15) << stock1.ROE << std::setw(15) << stock2.ROE << compareValues(stock1, stock2, "ROE") << "\n";
-}
-
 int main()
 {
+	std::vector<Stock> stocks{};
 	auto apiKey{ getApiKey() };
 	if (!apiKey)
+	{
 		return 1;
+	}
 
-	std::string symbol1{ getSymbol() };
-	std::optional<Stock> stock1{getStock(symbol1, *apiKey)};
-	if (!stock1)
-		return 1;
-
-	std::string symbol2{ getSymbol() };
-	std::optional<Stock> stock2{ getStock(symbol2, *apiKey) };
-	if (!stock2)
-		return 1;
-
-	compare(*stock1, *stock2);
+	std::cout << "Welcome to stock analyzer, enter some stocks and press -1 to rank them for growth potential.\n";
+	while (true)
+	{
+		std::string symbol{ getSymbol() };
+		if (symbol == "-1")
+		{
+			std::cout << '\n';
+			break;
+		}
+		std::optional<Stock> stock{ getStock(symbol, *apiKey) };
+		if (!stock)
+		{
+			continue;
+		}
+		stocks.push_back(*stock);
+	}
+	for (const auto& e : stocks)
+	{
+		printStock(e);
+	}
 
 	return 0;
 }
