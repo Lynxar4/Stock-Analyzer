@@ -1,4 +1,5 @@
 #define _CRT_SECURE_NO_WARNINGS
+#define CPPHTTPLIB_OPENSSL_SUPPORT
 #include <iostream>
 #include <string>
 #include <string_view>
@@ -7,11 +8,12 @@
 #include <algorithm>
 #include <cctype>
 #include <optional>
-#include <iomanip>
+#include <limits>
 #include <stdexcept>
 #include <nlohmann/json.hpp>
-#define CPPHTTPLIB_OPENSSL_SUPPORT
 #include "httplib.h"
+
+constexpr double kMissing{ std::numeric_limits<double>::quiet_NaN()};
 
 using json = nlohmann::json;
 
@@ -19,26 +21,48 @@ struct Stock
 {
 	std::string symbol{};
 	double price{};
-	double EPS{};
-	double ROE{};
-	double PE{};
-	double EPSGrowth3Y{};
-	double PEG3Y{};
+
+	// Growth 
 	double revenueGrowth3Y{};
+	double epsGrowth3Y{};
+
+	// Profitability 
+	double grossMarginTTM{};
+	double operatingMarginTTM{};
+	double roeTTM{};
+	double roicTTM{};
+
+	// Valuation 
+	double peTTM{};
+	double pegTTM{};
 };
 
-void printStock(const Stock& stock) 
+void printStock(const Stock& s) 
 {
-	std::cout << "Symbol: " << stock.symbol << '\n';
-	std::cout << "Price: $" << stock.price << '\n';
-	std::cout << "Earnings per share: $" << stock.EPS << '\n';
-	std::cout << "P/E Ratio: " << stock.PE << '\n';
-	std::cout << "Return on equity: " << stock.ROE << "%\n";
-	std::cout << "Growth metrics (3 year data):\n";
-	std::cout << "EPS Growth: " << stock.EPSGrowth3Y << "%\n";
-	std::cout << "PEG Ratio: " << stock.PEG3Y << '\n';
-	std::cout << "Revenue Growth: " << stock.revenueGrowth3Y << "%\n";
+	std::cout << "Symbol: " << s.symbol << '\n';
+	std::cout << "Price: $" << s.price << '\n';
+	std::cout << "Growth (3Y):\n";
+	std::cout << " Revenue: " << s.revenueGrowth3Y << "%\n";
+	std::cout << " EPS: " << s.epsGrowth3Y << "%\n";
+	std::cout << "Profitability (TTM):\n";
+	std::cout << " Gross margin: " << s.grossMarginTTM << "%\n";
+	std::cout << " Operating margin: " << s.operatingMarginTTM << "%\n";
+	std::cout << " ROE: " << s.roeTTM << "%\n";
+	std::cout << " ROIC: " << s.roicTTM << "%\n";
+	std::cout << "Valuation:\n";
+	std::cout << " P/E: " << s.peTTM << '\n';
+	std::cout << " PEG: " << s.pegTTM << '\n';
 	std::cout << '\n';
+}
+
+double getMetric(const json& metric, const std::string& key)
+{
+	auto it{ metric.find(key) };
+	if (it == metric.end() || !it->is_number())
+	{
+		return kMissing;
+	}
+	return it->get<double>();
 }
 
 std::string createURL(std::string symbol, std::string apiKey, std::string function)
@@ -94,6 +118,19 @@ std::optional<json> getData(std::string symbol, std::string apiKey, std::string 
 	}
 }
 
+double getLatestQuarterly(const json& data, const std::string& key)
+{
+	try
+	{
+		const json& list{ data.at("series").at("quarterly").at(key) }; // JSON array of {period, v} entries for this metric
+		return list.at(0).at("v").get<double>() * 100.0;
+	}
+	catch (const json::exception&)
+	{
+		return kMissing;
+	}
+}
+
 std::optional<Stock> getStock(std::string symbol, std::string apiKey)
 {
 	std::optional<json> quoteData{ getData(symbol, apiKey, "quote") }; // Get price data
@@ -108,37 +145,28 @@ std::optional<Stock> getStock(std::string symbol, std::string apiKey)
 		return std::nullopt;
 	}
 
-	std::string stockSymbol{};
-	double price{};
-	double EPS{};
-	double ROE{};
-	double PE{};
-	double EPSGrowth3Y{};
-	double PEG3Y{};
-	double revenueGrowth3Y{};
 	try
 	{
-		stockSymbol = (*metricData)["symbol"].get<std::string>();
-		price = (*quoteData)["c"].get<double>();
-		EPS = (*metricData)["metric"]["epsTTM"].get<double>();
-		ROE = (*metricData)["metric"]["roeTTM"].get<double>();
-		PE = (*metricData)["metric"]["peTTM"].get<double>();
-		EPSGrowth3Y = (*metricData)["metric"]["epsGrowth3Y"].get<double>();
-		if (EPSGrowth3Y > 0)
-		{
-			PEG3Y = PE / EPSGrowth3Y;
-		}
-		else
-			PEG3Y = 0;
-		revenueGrowth3Y = (*metricData)["metric"]["revenueGrowth3Y"].get<double>();
+		const json metric{ (*metricData)["metric"] };
+		Stock stock{};
+		stock.symbol = (*metricData)["symbol"].get<std::string>();
+		stock.price = (*quoteData)["c"].get<double>();
+		stock.revenueGrowth3Y = getMetric(metric, "revenueGrowth3Y");
+		stock.epsGrowth3Y = getMetric(metric, "epsGrowth3Y");
+		stock.grossMarginTTM = getMetric(metric, "grossMarginTTM");
+		stock.operatingMarginTTM = getMetric(metric, "operatingMarginTTM");
+		stock.roeTTM = getMetric(metric, "roeTTM");
+		stock.roicTTM = getLatestQuarterly(*metricData, "roicTTM");
+		stock.peTTM = getMetric(metric, "peTTM");
+		stock.pegTTM = getMetric(metric, "pegTTM");
+
+		return stock;
 	}
 	catch (const json::exception&)
 	{
 		std::cout << "Missing or invalid data for this stock.\n";
 		return std::nullopt;
 	}
-
-	return Stock{.symbol = stockSymbol, .price = price, .EPS = EPS, .ROE = ROE, .PE = PE, .EPSGrowth3Y = EPSGrowth3Y, .PEG3Y = PEG3Y, .revenueGrowth3Y = revenueGrowth3Y};
 }
 
 std::string getSymbol()
