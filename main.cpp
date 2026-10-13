@@ -9,6 +9,7 @@
 #include <cctype>
 #include <optional>
 #include <limits>
+#include <cmath>
 #include <stdexcept>
 #include <nlohmann/json.hpp>
 #include "httplib.h"
@@ -88,7 +89,12 @@ std::optional<json> getData(std::string symbol, std::string apiKey, std::string 
 	auto res = cli.Get(URL);
 	if (res && res->status == 200)
 	{
-		json data = json::parse(res->body);	
+		json data = json::parse(res->body, nullptr, false);	
+		if (data.is_discarded())
+		{
+			std::cerr << "Json parse error for " << symbol << " Status: " << res->status << '\n';
+			return std::nullopt;
+		}
 		if (function == "quote")
 		{
 			if (data["c"] == 0)
@@ -110,6 +116,7 @@ std::optional<json> getData(std::string symbol, std::string apiKey, std::string 
 	else if (res && res->status == 429)
 	{
 		std::cout << "You reached your rate limit.\n";
+		return std::nullopt;
 	}
 	else
 	{
@@ -131,6 +138,15 @@ double getLatestQuarterly(const json& data, const std::string& key)
 	}
 }
 
+double checkPE(double ratio)
+{
+	if (ratio <= 0)
+	{
+		return kMissing;
+	}
+	return ratio;
+}
+
 std::optional<Stock> getStock(std::string symbol, std::string apiKey)
 {
 	std::optional<json> quoteData{ getData(symbol, apiKey, "quote") }; // Get price data
@@ -147,7 +163,7 @@ std::optional<Stock> getStock(std::string symbol, std::string apiKey)
 
 	try
 	{
-		const json metric{ (*metricData)["metric"] };
+		const json& metric{ (*metricData).at("metric")};
 		Stock stock{};
 		stock.symbol = (*metricData)["symbol"].get<std::string>();
 		stock.price = (*quoteData)["c"].get<double>();
@@ -157,8 +173,8 @@ std::optional<Stock> getStock(std::string symbol, std::string apiKey)
 		stock.operatingMarginTTM = getMetric(metric, "operatingMarginTTM");
 		stock.roeTTM = getMetric(metric, "roeTTM");
 		stock.roicTTM = getLatestQuarterly(*metricData, "roicTTM");
-		stock.peTTM = getMetric(metric, "peTTM");
-		stock.pegTTM = getMetric(metric, "pegTTM");
+		stock.peTTM = checkPE(getMetric(metric, "peTTM"));
+		stock.pegTTM = checkPE(getMetric(metric, "pegTTM"));
 
 		return stock;
 	}
@@ -191,6 +207,111 @@ std::optional<std::string> getApiKey()
 	return std::string{ apiKey };
 }
 
+double getPercentileForMetric(const Stock& stock, const std::vector<Stock>& stocks, double Stock::*metric, bool higherIsBetter)
+{
+	double beaten{};
+	double counter{};
+		for (std::size_t i{ 0 }; i < stocks.size(); ++i)
+		{
+			if (std::isnan(stocks[i].*metric) || std::isnan(stock.*metric))
+			{
+				continue;
+			}
+			if (stock.symbol == stocks[i].symbol)
+			{
+				continue;
+			}
+
+			if (higherIsBetter)
+			{
+				if (stock.*metric > stocks[i].*metric)
+				{
+					++beaten;
+				}
+			}
+			else
+			{
+				if (stock.*metric < stocks[i].*metric)
+				{
+					++beaten;
+				}
+			}
+			++counter;
+		}
+
+		if (counter == 0)
+		{
+			return kMissing;
+		}
+
+		return (beaten / counter * 100);
+
+}
+
+double getPercentileAverage(const std::vector<double>& percentiles)
+{
+	double sum{};
+	double count{};
+	for (const auto& e : percentiles)
+	{
+		if (std::isnan(e))
+		{
+			continue;
+		}
+		sum += e;
+		++count;
+	}
+	if (count == 0)
+	{
+		return kMissing;
+	}
+	return sum / count;
+}
+
+double growthScore(const Stock& stock, const std::vector<Stock>& stocks)
+{
+	double revenueGrowthPercentile{ getPercentileForMetric(stock, stocks, &Stock::revenueGrowth3Y, true) };
+	double epsGrowthPercentile{ getPercentileForMetric(stock, stocks, &Stock::epsGrowth3Y, true) };
+	return getPercentileAverage({revenueGrowthPercentile, epsGrowthPercentile});
+}
+
+double profitabilityScore(const Stock& stock, const std::vector<Stock>& stocks)
+{
+	double grossMarginPercentile{ getPercentileForMetric(stock, stocks, &Stock::grossMarginTTM, true) };
+	double operatingMarginPercentile{ getPercentileForMetric(stock, stocks, &Stock::operatingMarginTTM, true) };
+	double roePercentile{ getPercentileForMetric(stock, stocks, &Stock::roeTTM, true) };
+	double roicPercentile{ getPercentileForMetric(stock, stocks, &Stock::roicTTM, true) };
+	return getPercentileAverage({ grossMarginPercentile, operatingMarginPercentile, roePercentile, roicPercentile });
+}
+
+double valuationScore(const Stock& stock, const std::vector<Stock>& stocks)
+{
+	double pePercentile{ getPercentileForMetric(stock, stocks, &Stock::peTTM, false) };
+	double pegPercentile{ getPercentileForMetric(stock, stocks, &Stock::pegTTM, false) };
+	return getPercentileAverage({ pePercentile, pegPercentile });
+}
+
+void displayRanking(const std::vector<Stock>& stocks)
+{
+	std::cout << '\n';
+	for (const auto& s : stocks)
+	{
+		std::cout << s.symbol << " Growth Score: " << growthScore(s, stocks) << '\n';
+		std::cout << s.symbol << " Profitability Score: " << profitabilityScore(s, stocks) << '\n';
+		std::cout << s.symbol << " Valuation Score: " << valuationScore(s, stocks) << "\n\n";
+	}
+}
+
+bool isDuplicate(const std::vector<Stock>& stocks, std::string_view symbol)
+{
+	return std::any_of(stocks.begin(), stocks.end(),
+		[symbol](const Stock& s)
+		{
+			return s.symbol == symbol;
+		}
+		);
+}
+
 int main()
 {
 	std::vector<Stock> stocks{};
@@ -200,13 +321,22 @@ int main()
 		return 1;
 	}
 
-	std::cout << "Welcome to stock analyzer, enter some stocks and press -1 to rank them for growth potential.\n";
+	std::cout << "Welcome to stock analyzer, enter some stocks and press -1 to rank them.\n";
 	while (true)
 	{
 		std::string symbol{ getSymbol() };
+		if (isDuplicate(stocks, symbol))
+		{
+			std::cout << "You already entered this stock.\n\n";
+			continue;
+		}
 		if (symbol == "-1")
 		{
-			std::cout << '\n';
+			for (const auto& e : stocks)
+			{
+				printStock(e);
+			}
+			displayRanking(stocks);
 			break;
 		}
 		std::optional<Stock> stock{ getStock(symbol, *apiKey) };
@@ -215,10 +345,6 @@ int main()
 			continue;
 		}
 		stocks.push_back(*stock);
-	}
-	for (const auto& e : stocks)
-	{
-		printStock(e);
 	}
 
 	return 0;
