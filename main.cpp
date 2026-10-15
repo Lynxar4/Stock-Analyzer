@@ -15,6 +15,9 @@
 #include "httplib.h"
 
 constexpr double kMissing{ std::numeric_limits<double>::quiet_NaN()};
+constexpr double growthWeight{0.4};
+constexpr double profitabilityWeight{ 0.3 };
+constexpr double valuationWeight{ 0.3 };
 
 using json = nlohmann::json;
 
@@ -36,6 +39,15 @@ struct Stock
 	// Valuation 
 	double peTTM{};
 	double pegTTM{};
+};
+
+struct StockScore
+{
+	std::string symbol{};
+	double gScore{};
+	double pScore{};
+	double vScore{};
+	double finalScore{};
 };
 
 void printStock(const Stock& s) 
@@ -291,15 +303,45 @@ double valuationScore(const Stock& stock, const std::vector<Stock>& stocks)
 	return getPercentileAverage({ pePercentile, pegPercentile });
 }
 
+double getTotalScore(double gScore, double pScore, double vScore)
+{
+	if (std::isnan(gScore) || std::isnan(pScore) || std::isnan(vScore))
+	{
+		return kMissing;
+	}
+	return gScore * growthWeight + pScore * profitabilityWeight + vScore * valuationWeight;
+}
+
+void printScores(const std::vector<StockScore>& scores)
+{
+	for (const auto& e : scores)
+	{
+		std::cout << e.symbol << " Growth Score: " << e.gScore << '\n';
+		std::cout << e.symbol << " Profitability Score: " << e.pScore << '\n';
+		std::cout << e.symbol << " Valuation Score: " << e.vScore << '\n';
+		std::cout << e.symbol << " Final Score: " << e.finalScore << "\n\n";
+	}
+}
+
 void displayRanking(const std::vector<Stock>& stocks)
 {
 	std::cout << '\n';
+	std::vector<StockScore> scores{};;
 	for (const auto& s : stocks)
 	{
-		std::cout << s.symbol << " Growth Score: " << growthScore(s, stocks) << '\n';
-		std::cout << s.symbol << " Profitability Score: " << profitabilityScore(s, stocks) << '\n';
-		std::cout << s.symbol << " Valuation Score: " << valuationScore(s, stocks) << "\n\n";
+		const double gScore{ growthScore(s, stocks) };
+		const double pScore{ profitabilityScore(s, stocks) };
+		const double vScore{ valuationScore(s, stocks) };
+		const double finalScore{ getTotalScore(gScore, pScore, vScore) };
+		scores.push_back({ s.symbol, gScore, pScore, vScore, finalScore });
 	}
+
+	std::sort(scores.begin(), scores.end(), 
+		[](const StockScore& a, const StockScore& b)
+		{
+			return a.finalScore > b.finalScore;
+		});
+	printScores(scores);
 }
 
 bool isDuplicate(const std::vector<Stock>& stocks, std::string_view symbol)
@@ -308,8 +350,7 @@ bool isDuplicate(const std::vector<Stock>& stocks, std::string_view symbol)
 		[symbol](const Stock& s)
 		{
 			return s.symbol == symbol;
-		}
-		);
+		});
 }
 
 int main()
