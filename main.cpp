@@ -14,12 +14,21 @@
 #include <nlohmann/json.hpp>
 #include "httplib.h"
 
+using json = nlohmann::json;
+
 constexpr double kMissing{ std::numeric_limits<double>::quiet_NaN()};
 constexpr double growthWeight{0.4};
 constexpr double profitabilityWeight{ 0.3 };
 constexpr double valuationWeight{ 0.3 };
 
-using json = nlohmann::json;
+constexpr bool isValidWeights()
+{
+	double distance{ 1 - (growthWeight + profitabilityWeight + valuationWeight) };
+	return distance < 0 ? -distance < 1e-9 : distance < 1e-9;
+}
+
+static_assert(isValidWeights());
+
 
 struct Stock
 {
@@ -62,7 +71,7 @@ void printStock(const Stock& s)
 	std::cout << " Operating margin: " << s.operatingMarginTTM << "%\n";
 	std::cout << " ROE: " << s.roeTTM << "%\n";
 	std::cout << " ROIC: " << s.roicTTM << "%\n";
-	std::cout << "Valuation:\n";
+	std::cout << "Valuation (TTM):\n";
 	std::cout << " P/E: " << s.peTTM << '\n';
 	std::cout << " PEG: " << s.pegTTM << '\n';
 	std::cout << '\n';
@@ -78,7 +87,7 @@ double getMetric(const json& metric, const std::string& key)
 	return it->get<double>();
 }
 
-std::string createURL(std::string symbol, std::string apiKey, std::string function)
+std::string createURL(const std::string& symbol, const std::string& apiKey, std::string_view function)
 {
 	if (function == "quote")
 	{
@@ -94,7 +103,7 @@ std::string createURL(std::string symbol, std::string apiKey, std::string functi
 	}
 }
 
-std::optional<json> getData(std::string symbol, std::string apiKey, std::string function)
+std::optional<json> getData(const std::string& symbol, const std::string& apiKey, std::string_view function)
 {
 	httplib::Client cli("https://finnhub.io");
 	std::string URL{ createURL(symbol, apiKey, function) };
@@ -159,7 +168,7 @@ double checkPE(double ratio)
 	return ratio;
 }
 
-std::optional<Stock> getStock(std::string symbol, std::string apiKey)
+std::optional<Stock> getStock(const std::string& symbol, const std::string& apiKey)
 {
 	std::optional<json> quoteData{ getData(symbol, apiKey, "quote") }; // Get price data
 	if (!quoteData)
@@ -177,7 +186,7 @@ std::optional<Stock> getStock(std::string symbol, std::string apiKey)
 	{
 		const json& metric{ (*metricData).at("metric")};
 		Stock stock{};
-		stock.symbol = (*metricData)["symbol"].get<std::string>();
+		stock.symbol = symbol;
 		stock.price = (*quoteData)["c"].get<double>();
 		stock.revenueGrowth3Y = getMetric(metric, "revenueGrowth3Y");
 		stock.epsGrowth3Y = getMetric(metric, "epsGrowth3Y");
@@ -260,7 +269,7 @@ double getPercentileForMetric(const Stock& stock, const std::vector<Stock>& stoc
 
 }
 
-double getPercentileAverage(const std::vector<double>& percentiles)
+double getPercentileAverage(const std::vector<double>& percentiles, int minimumPercentiles)
 {
 	double sum{};
 	double count{};
@@ -273,7 +282,7 @@ double getPercentileAverage(const std::vector<double>& percentiles)
 		sum += e;
 		++count;
 	}
-	if (count == 0)
+	if (count < minimumPercentiles)
 	{
 		return kMissing;
 	}
@@ -284,7 +293,7 @@ double growthScore(const Stock& stock, const std::vector<Stock>& stocks)
 {
 	double revenueGrowthPercentile{ getPercentileForMetric(stock, stocks, &Stock::revenueGrowth3Y, true) };
 	double epsGrowthPercentile{ getPercentileForMetric(stock, stocks, &Stock::epsGrowth3Y, true) };
-	return getPercentileAverage({revenueGrowthPercentile, epsGrowthPercentile});
+	return getPercentileAverage({revenueGrowthPercentile, epsGrowthPercentile}, 2);
 }
 
 double profitabilityScore(const Stock& stock, const std::vector<Stock>& stocks)
@@ -293,14 +302,14 @@ double profitabilityScore(const Stock& stock, const std::vector<Stock>& stocks)
 	double operatingMarginPercentile{ getPercentileForMetric(stock, stocks, &Stock::operatingMarginTTM, true) };
 	double roePercentile{ getPercentileForMetric(stock, stocks, &Stock::roeTTM, true) };
 	double roicPercentile{ getPercentileForMetric(stock, stocks, &Stock::roicTTM, true) };
-	return getPercentileAverage({ grossMarginPercentile, operatingMarginPercentile, roePercentile, roicPercentile });
+	return getPercentileAverage({ grossMarginPercentile, operatingMarginPercentile, roePercentile, roicPercentile }, 3);
 }
 
 double valuationScore(const Stock& stock, const std::vector<Stock>& stocks)
 {
 	double pePercentile{ getPercentileForMetric(stock, stocks, &Stock::peTTM, false) };
 	double pegPercentile{ getPercentileForMetric(stock, stocks, &Stock::pegTTM, false) };
-	return getPercentileAverage({ pePercentile, pegPercentile });
+	return getPercentileAverage({ pePercentile, pegPercentile }, 2);
 }
 
 double getTotalScore(double gScore, double pScore, double vScore)
@@ -312,21 +321,39 @@ double getTotalScore(double gScore, double pScore, double vScore)
 	return gScore * growthWeight + pScore * profitabilityWeight + vScore * valuationWeight;
 }
 
+void printMetric(double score)
+{
+	if (std::isnan(score))
+	{
+		std::cout << "N/A";
+	}
+	else
+	{
+		std::cout << score;
+	}
+	std::cout << '\n';
+}
+
 void printScores(const std::vector<StockScore>& scores)
 {
 	for (const auto& e : scores)
 	{
-		std::cout << e.symbol << " Growth Score: " << e.gScore << '\n';
-		std::cout << e.symbol << " Profitability Score: " << e.pScore << '\n';
-		std::cout << e.symbol << " Valuation Score: " << e.vScore << '\n';
-		std::cout << e.symbol << " Final Score: " << e.finalScore << "\n\n";
+		std::cout << e.symbol << " Growth Score: ";
+		printMetric(e.gScore);
+		std::cout << e.symbol << " Profitability Score: ";
+		printMetric(e.pScore);
+		std::cout << e.symbol << " Valuation Score: ";
+		printMetric(e.vScore);
+		std::cout << e.symbol << " Final Score: ";
+		printMetric(e.finalScore);
+		std::cout << '\n';
 	}
 }
 
 void displayRanking(const std::vector<Stock>& stocks)
 {
 	std::cout << '\n';
-	std::vector<StockScore> scores{};;
+	std::vector<StockScore> scores{};
 	for (const auto& s : stocks)
 	{
 		const double gScore{ growthScore(s, stocks) };
@@ -336,11 +363,19 @@ void displayRanking(const std::vector<Stock>& stocks)
 		scores.push_back({ s.symbol, gScore, pScore, vScore, finalScore });
 	}
 
-	std::sort(scores.begin(), scores.end(), 
+	auto it = std::partition(scores.begin(), scores.end(),
+		[](const StockScore& score)
+		{
+			return !std::isnan(score.finalScore);
+		}
+		);
+
+	std::sort(scores.begin(), it, 
 		[](const StockScore& a, const StockScore& b)
 		{
 			return a.finalScore > b.finalScore;
 		});
+
 	printScores(scores);
 }
 
