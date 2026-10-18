@@ -20,6 +20,7 @@ constexpr double kMissing{ std::numeric_limits<double>::quiet_NaN()};
 constexpr double growthWeight{0.4};
 constexpr double profitabilityWeight{ 0.3 };
 constexpr double valuationWeight{ 0.3 };
+constexpr bool debug{ true };
 
 constexpr bool isValidWeights()
 {
@@ -388,9 +389,79 @@ bool isDuplicate(const std::vector<Stock>& stocks, std::string_view symbol)
 		});
 }
 
+double getMean(const std::vector<Stock>& stocks, double Stock::* metric)
+{
+	double total{};
+	double count{};
+	for (const auto& e : stocks)
+	{
+		if (std::isnan(e.*metric))
+		{
+			continue;
+		}
+		++count;
+		total += e.*metric;
+	}
+
+	if (count == 0)
+	{
+		return kMissing;
+	}
+
+	return total / count;
+}
+
+double getStandardDeviation(const std::vector<Stock>& stocks, double Stock::* metric, double mean)
+{
+	double total{};
+	int count{};
+	for (const auto& e : stocks)
+	{
+		double deviation{ e.*metric - mean };
+		if (std::isnan(e.*metric))
+		{
+			continue;
+		}
+		++count;
+		double squaredDeviation{ deviation * deviation };
+		total += squaredDeviation;
+	}
+	if (count == 0)
+	{
+		return kMissing;
+	}
+	double variance{ total / count };
+	return std::sqrt(variance);
+}
+
+double getZScore(const Stock& stock, double Stock::*metric, double mean, double standardDeviation)
+{
+	if (standardDeviation < 1e-9 || std::isnan(standardDeviation) || std::isnan(stock.*metric))
+	{
+		return kMissing;
+	}
+	return (stock.*metric - mean) / standardDeviation;
+}
+
+
 int main()
 {
 	std::vector<Stock> stocks{};
+	if (debug)
+	{
+		Stock a{ .price = 10 };
+		Stock b{ .price = 20 };
+		Stock c{ .price = 30 };
+		std::vector<Stock> test{ a, b, c };
+		double mean{ getMean(test, &Stock::price) };
+		double standardDeviation{ getStandardDeviation(test, &Stock::price, mean) };
+		std::cout << "mean: " << mean << '\n';
+		std::cout << "standard deviation: " << standardDeviation << '\n';
+		std::cout << "Z score (a): " << getZScore(a, &Stock::price, mean, standardDeviation) << '\n';
+		std::cout << "Z score (b): " << getZScore(b, &Stock::price, mean, standardDeviation) << '\n';
+		std::cout << "Z score (c): " << getZScore(c, &Stock::price, mean, standardDeviation) << '\n';
+	}
+
 	auto apiKey{ getApiKey() };
 	if (!apiKey)
 	{
