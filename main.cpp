@@ -20,7 +20,10 @@ constexpr double kMissing{ std::numeric_limits<double>::quiet_NaN()};
 constexpr double growthWeight{0.4};
 constexpr double profitabilityWeight{ 0.3 };
 constexpr double valuationWeight{ 0.3 };
-constexpr bool debug{ true };
+constexpr int growthMinimumMetrics{2};
+constexpr int protfitabilityMinimumMetrics{3};
+constexpr int valuationMinimumMetrics{ 2 };
+constexpr bool debug{ false };
 
 constexpr bool isValidWeights()
 {
@@ -58,6 +61,7 @@ struct StockScore
 	double pScore{};
 	double vScore{};
 	double finalScore{};
+	double finalZScore{};
 };
 
 void printStock(const Stock& s) 
@@ -294,7 +298,7 @@ double growthScore(const Stock& stock, const std::vector<Stock>& stocks)
 {
 	double revenueGrowthPercentile{ getPercentileForMetric(stock, stocks, &Stock::revenueGrowth3Y, true) };
 	double epsGrowthPercentile{ getPercentileForMetric(stock, stocks, &Stock::epsGrowth3Y, true) };
-	return getPercentileAverage({revenueGrowthPercentile, epsGrowthPercentile}, 2);
+	return getPercentileAverage({revenueGrowthPercentile, epsGrowthPercentile}, growthMinimumMetrics);
 }
 
 double profitabilityScore(const Stock& stock, const std::vector<Stock>& stocks)
@@ -303,14 +307,14 @@ double profitabilityScore(const Stock& stock, const std::vector<Stock>& stocks)
 	double operatingMarginPercentile{ getPercentileForMetric(stock, stocks, &Stock::operatingMarginTTM, true) };
 	double roePercentile{ getPercentileForMetric(stock, stocks, &Stock::roeTTM, true) };
 	double roicPercentile{ getPercentileForMetric(stock, stocks, &Stock::roicTTM, true) };
-	return getPercentileAverage({ grossMarginPercentile, operatingMarginPercentile, roePercentile, roicPercentile }, 3);
+	return getPercentileAverage({ grossMarginPercentile, operatingMarginPercentile, roePercentile, roicPercentile }, protfitabilityMinimumMetrics);
 }
 
 double valuationScore(const Stock& stock, const std::vector<Stock>& stocks)
 {
 	double pePercentile{ getPercentileForMetric(stock, stocks, &Stock::peTTM, false) };
 	double pegPercentile{ getPercentileForMetric(stock, stocks, &Stock::pegTTM, false) };
-	return getPercentileAverage({ pePercentile, pegPercentile }, 2);
+	return getPercentileAverage({ pePercentile, pegPercentile }, valuationMinimumMetrics);
 }
 
 double getTotalScore(double gScore, double pScore, double vScore)
@@ -339,45 +343,21 @@ void printScores(const std::vector<StockScore>& scores)
 {
 	for (const auto& e : scores)
 	{
-		std::cout << e.symbol << " Growth Score: ";
-		printMetric(e.gScore);
-		std::cout << e.symbol << " Profitability Score: ";
-		printMetric(e.pScore);
-		std::cout << e.symbol << " Valuation Score: ";
-		printMetric(e.vScore);
-		std::cout << e.symbol << " Final Score: ";
+		if (debug)
+		{
+			std::cout << e.symbol << " Growth Score: ";
+			printMetric(e.gScore);
+			std::cout << e.symbol << " Profitability Score: ";
+			printMetric(e.pScore);
+			std::cout << e.symbol << " Valuation Score: ";
+			printMetric(e.vScore);
+		}
+		std::cout << e.symbol << " Final Score Percentile: ";
 		printMetric(e.finalScore);
+		std::cout << e.symbol << " Final Z score: ";
+		printMetric(e.finalZScore);
 		std::cout << '\n';
 	}
-}
-
-void displayRanking(const std::vector<Stock>& stocks)
-{
-	std::cout << '\n';
-	std::vector<StockScore> scores{};
-	for (const auto& s : stocks)
-	{
-		const double gScore{ growthScore(s, stocks) };
-		const double pScore{ profitabilityScore(s, stocks) };
-		const double vScore{ valuationScore(s, stocks) };
-		const double finalScore{ getTotalScore(gScore, pScore, vScore) };
-		scores.push_back({ s.symbol, gScore, pScore, vScore, finalScore });
-	}
-
-	auto it = std::partition(scores.begin(), scores.end(),
-		[](const StockScore& score)
-		{
-			return !std::isnan(score.finalScore);
-		}
-		);
-
-	std::sort(scores.begin(), it, 
-		[](const StockScore& a, const StockScore& b)
-		{
-			return a.finalScore > b.finalScore;
-		});
-
-	printScores(scores);
 }
 
 bool isDuplicate(const std::vector<Stock>& stocks, std::string_view symbol)
@@ -443,23 +423,117 @@ double getZScore(const Stock& stock, double Stock::*metric, double mean, double 
 	return (stock.*metric - mean) / standardDeviation;
 }
 
+double getZScoreForMetric(const Stock& stock, const std::vector<Stock>& stocks, double Stock::* metric)
+{
+	double mean{ getMean(stocks, metric) };
+	double standardDeviation{ getStandardDeviation(stocks, metric, mean) };
+	double zScore{ getZScore(stock, metric, mean, standardDeviation) };
+	return zScore;
+}
+
+double zScoreAverage(const std::vector<double>& zScores, int minimumAmount)
+{
+	double sum{};
+	double count{};
+	for (const auto& e : zScores)
+	{
+		if (std::isnan(e))
+		{
+			continue;
+		}
+		sum += e;
+		++count;
+	}
+	if (count < minimumAmount)
+	{
+		return kMissing;
+	}
+	return sum / count;
+}
+
+double zScoreGrowthAverage(const Stock& stock, const std::vector<Stock>& stocks)
+{
+	double revenueGrowthZ{ getZScoreForMetric(stock, stocks, &Stock::revenueGrowth3Y) };
+	double epsGrowthZ{ getZScoreForMetric(stock, stocks, &Stock::epsGrowth3Y) };
+	return zScoreAverage({ revenueGrowthZ, epsGrowthZ }, growthMinimumMetrics);
+}
+
+double zScoreProfitabilityAverage(const Stock& stock, const std::vector<Stock>& stocks)
+{
+	double grossMarginZ{ getZScoreForMetric(stock, stocks, &Stock::grossMarginTTM) };
+	double operatingMarginZ{ getZScoreForMetric(stock, stocks, &Stock::operatingMarginTTM) };
+	double roeZ{ getZScoreForMetric(stock, stocks, &Stock::roeTTM) };
+	double roicZ{ getZScoreForMetric(stock, stocks, &Stock::roicTTM) };
+	return zScoreAverage({ grossMarginZ, operatingMarginZ, roeZ, roicZ }, protfitabilityMinimumMetrics);
+}
+
+double zScoreValuationAverage(const Stock& stock, const std::vector<Stock>& stocks)
+{
+	double peZ{getZScoreForMetric(stock, stocks, &Stock::peTTM) * -1}; 
+	double pegZ{ getZScoreForMetric(stock, stocks, &Stock::pegTTM) * -1};
+	return zScoreAverage({ peZ, pegZ }, valuationMinimumMetrics);
+}
+
+double getfinalZScore(double zGrowthAverage, double zProfitabilityAverage, double zValuationAverage)
+{
+	if (std::isnan(zGrowthAverage) || std::isnan(zProfitabilityAverage) || std::isnan(zValuationAverage))
+	{
+		return kMissing;
+	}
+	return zGrowthAverage * growthWeight + zProfitabilityAverage * profitabilityWeight + zValuationAverage * valuationWeight;
+}
+
+void displayRanking(const std::vector<Stock>& stocks)
+{
+	std::cout << '\n';
+	std::vector<StockScore> scores{};
+	for (const auto& s : stocks)
+	{
+		const double gScore{ growthScore(s, stocks) };
+		const double pScore{ profitabilityScore(s, stocks) };
+		const double vScore{ valuationScore(s, stocks) };
+		const double finalScore{ getTotalScore(gScore, pScore, vScore) };
+
+		const double zGrowthAverage{ zScoreGrowthAverage(s, stocks) };
+		const double zProfitabilityAverage{ zScoreProfitabilityAverage(s, stocks) };
+		const double zValuationAverage{ zScoreValuationAverage(s, stocks) };
+		const double finalZScore{ getfinalZScore(zGrowthAverage, zProfitabilityAverage, zValuationAverage) };
+
+		scores.push_back({ s.symbol, gScore, pScore, vScore, finalScore, finalZScore });
+	}
+
+	auto it = std::partition(scores.begin(), scores.end(),
+		[](const StockScore& score)
+		{
+			return !std::isnan(score.finalScore);
+		}
+	);
+
+	std::sort(scores.begin(), it,
+		[](const StockScore& a, const StockScore& b)
+		{
+			return a.finalScore > b.finalScore;
+		});
+
+	printScores(scores);
+}
 
 int main()
 {
 	std::vector<Stock> stocks{};
 	if (debug)
 	{
-		Stock a{ .price = 10 };
-		Stock b{ .price = 20 };
-		Stock c{ .price = 30 };
+		Stock a{ .revenueGrowth3Y = 27, .epsGrowth3Y = 50 };
+		Stock b{ .revenueGrowth3Y = 19, .epsGrowth3Y = 40 };
+		Stock c{ .revenueGrowth3Y = 81, .epsGrowth3Y = 20 };
 		std::vector<Stock> test{ a, b, c };
 		double mean{ getMean(test, &Stock::price) };
 		double standardDeviation{ getStandardDeviation(test, &Stock::price, mean) };
 		std::cout << "mean: " << mean << '\n';
 		std::cout << "standard deviation: " << standardDeviation << '\n';
-		std::cout << "Z score (a): " << getZScore(a, &Stock::price, mean, standardDeviation) << '\n';
-		std::cout << "Z score (b): " << getZScore(b, &Stock::price, mean, standardDeviation) << '\n';
-		std::cout << "Z score (c): " << getZScore(c, &Stock::price, mean, standardDeviation) << '\n';
+		std::cout << "A growth Z score Average: " << zScoreGrowthAverage(a, test) << '\n';
+		std::cout << "B growth Z score Average: " << zScoreGrowthAverage(b, test) << '\n';
+		std::cout << "C growth Z score Average: " << zScoreGrowthAverage(c, test) << '\n';
 	}
 
 	auto apiKey{ getApiKey() };
