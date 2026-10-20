@@ -11,6 +11,7 @@
 #include <limits>
 #include <cmath>
 #include <stdexcept>
+#include <fstream>
 #include <nlohmann/json.hpp>
 #include "httplib.h"
 
@@ -125,7 +126,7 @@ std::optional<json> getData(const std::string& symbol, const std::string& apiKey
 		{
 			if (data["c"] == 0)
 			{
-				std::cout << "You entered an invalid symbol.\n";
+				std::cout << "Invalid symbol: " << symbol << '\n';
 				return std::nullopt;
 			}
 		}
@@ -133,7 +134,7 @@ std::optional<json> getData(const std::string& symbol, const std::string& apiKey
 		{
 			if (data["metric"].empty())
 			{
-				std::cout << "You entered an invalid symbol.\n";
+				std::cout << "Invalid symbol: " << symbol << '\n';
 				return std::nullopt;
 			}
 		}
@@ -485,6 +486,10 @@ double getfinalZScore(double zGrowthAverage, double zProfitabilityAverage, doubl
 
 void displayRanking(const std::vector<Stock>& stocks)
 {
+	for (const auto& e : stocks)
+	{
+		printStock(e);
+	}
 	std::cout << '\n';
 	std::vector<StockScore> scores{};
 	for (const auto& s : stocks)
@@ -518,31 +523,8 @@ void displayRanking(const std::vector<Stock>& stocks)
 	printScores(scores);
 }
 
-int main()
+void manualStockLoop(std::vector<Stock>& stocks, const std::string& apiKey)
 {
-	std::vector<Stock> stocks{};
-	if (debug)
-	{
-		Stock a{ .revenueGrowth3Y = 27, .epsGrowth3Y = 50 };
-		Stock b{ .revenueGrowth3Y = 19, .epsGrowth3Y = 40 };
-		Stock c{ .revenueGrowth3Y = 81, .epsGrowth3Y = 20 };
-		std::vector<Stock> test{ a, b, c };
-		double mean{ getMean(test, &Stock::price) };
-		double standardDeviation{ getStandardDeviation(test, &Stock::price, mean) };
-		std::cout << "mean: " << mean << '\n';
-		std::cout << "standard deviation: " << standardDeviation << '\n';
-		std::cout << "A growth Z score Average: " << zScoreGrowthAverage(a, test) << '\n';
-		std::cout << "B growth Z score Average: " << zScoreGrowthAverage(b, test) << '\n';
-		std::cout << "C growth Z score Average: " << zScoreGrowthAverage(c, test) << '\n';
-	}
-
-	auto apiKey{ getApiKey() };
-	if (!apiKey)
-	{
-		return 1;
-	}
-
-	std::cout << "Welcome to stock analyzer, enter some stocks and press -1 to rank them.\n";
 	while (true)
 	{
 		std::string symbol{ getSymbol() };
@@ -553,19 +535,86 @@ int main()
 		}
 		if (symbol == "-1")
 		{
-			for (const auto& e : stocks)
-			{
-				printStock(e);
-			}
 			displayRanking(stocks);
 			break;
 		}
-		std::optional<Stock> stock{ getStock(symbol, *apiKey) };
+		std::optional<Stock> stock{ getStock(symbol, apiKey) };
 		if (!stock)
 		{
 			continue;
 		}
 		stocks.push_back(*stock);
+	}
+}
+
+void insertStocksFromFile(std::vector<Stock>& stocks, const std::string& apiKey)
+{
+	std::cout << "Type the file name: ";
+	std::string input{};
+	std::getline(std::cin >> std::ws, input);
+	std::ifstream inf{ input + ".txt" };
+	if (!inf)
+	{
+		std::cerr << "Couldn't open the file " << input << " for reading.\n";
+		return;
+	}
+
+	std::string strInput{};
+	while (inf >> strInput)
+	{
+		std::optional<Stock> stock{ getStock(strInput, apiKey) };
+		if (!stock)
+		{
+			continue;
+		}
+		stocks.push_back(*stock);
+	}
+	return;
+}
+
+int getValidChoice()
+{
+	int num{};
+	while (true)
+	{
+		std::cin >> num;
+		if (!std::cin)
+		{
+			std::cout << "That was not a valid input.\n";
+			std::cin.clear();
+			std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+			continue;
+		}
+		std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n'); // Clear extraneous input in the stream
+		return num;
+	}
+}
+
+int main()
+{
+	std::vector<Stock> stocks{};																																																
+
+	auto apiKey{ getApiKey() };
+	if (!apiKey)
+	{
+		return 1;
+	}
+
+	std::cout << "Welcome to stock analyzer, do you want to input stocks manually or insert a file?\n";
+	std::cout << "1: Type manually\n";
+	std::cout << "2: Insert a file\n";
+	int choice{getValidChoice()};
+	switch (choice)
+	{
+	case 1:
+		manualStockLoop(stocks, *apiKey);
+		break;
+	case 2:
+		insertStocksFromFile(stocks, *apiKey);
+		displayRanking(stocks);
+		break;
+	default:
+		std::cout << "That was not a valid choice.";
 	}
 
 	return 0;
