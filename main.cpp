@@ -212,14 +212,20 @@ std::optional<Stock> getStock(const std::string& symbol, const std::string& apiK
 	}
 }
 
+std::string toUpper(std::string_view string)
+{
+	std::string result{ string };
+	std::transform(result.begin(), result.end(), result.begin(),
+		[](unsigned char c) {return std::toupper(c); });
+	return result;
+}
+
 std::string getSymbol()
 {
 	std::cout << "Enter a stock symbol: ";
 	std::string symbol{};
 	std::getline(std::cin >> std::ws, symbol);
-	std::transform(symbol.begin(), symbol.end(), symbol.begin(),
-		[](unsigned char c) { return std::toupper(c); }); 
-	return symbol;
+	return toUpper(symbol);
 }
 
 std::optional<std::string> getApiKey()
@@ -535,7 +541,6 @@ void manualStockLoop(std::vector<Stock>& stocks, const std::string& apiKey)
 		}
 		if (symbol == "-1")
 		{
-			displayRanking(stocks);
 			break;
 		}
 		std::optional<Stock> stock{ getStock(symbol, apiKey) };
@@ -562,6 +567,12 @@ void insertStocksFromFile(std::vector<Stock>& stocks, const std::string& apiKey)
 	std::string strInput{};
 	while (inf >> strInput)
 	{
+		strInput = toUpper(strInput);
+		if (isDuplicate(stocks, strInput))
+		{
+			std::cout << "Skipping duplicate: " << strInput << '\n';
+			continue;
+		}
 		std::optional<Stock> stock{ getStock(strInput, apiKey) };
 		if (!stock)
 		{
@@ -569,7 +580,7 @@ void insertStocksFromFile(std::vector<Stock>& stocks, const std::string& apiKey)
 		}
 		stocks.push_back(*stock);
 	}
-	return;
+	std::cout << '\n';
 }
 
 int getValidChoice()
@@ -611,11 +622,19 @@ int main()
 		break;
 	case 2:
 		insertStocksFromFile(stocks, *apiKey);
-		displayRanking(stocks);
 		break;
 	default:
-		std::cout << "That was not a valid choice.";
+		std::cout << "That was not a valid choice.\n";
+		return 1;
 	}
+
+	if (stocks.empty())
+	{
+		std::cout << "You didn't enter any stocks. Ending program now.\n";
+		return 0;
+	}
+
+	displayRanking(stocks);
 
 	return 0;
 }
